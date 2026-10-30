@@ -1,46 +1,109 @@
 # K6 lab results
 
-รันทั้งหมดวันที่ 30 ต.ค. 2026 ด้วย k6 v2.3.0 บน macOS ยิงจากไทยไปที่ https://quickpizza.grafana.com
 
 ## Part 0
-- Step 0.1, http_req_duration: 386.03 ms (มี request เดียว ค่า avg, min, med, max, p(90), p(95) เลยเท่ากันหมด)
-- Step 0.2, requests, rate and p(95), and why the rate stays below 5: ได้ 75 requests, 3.70 req/s, p(95) = 402.49 ms ที่ไม่ถึง 5 req/s เพราะ 1 iteration ของ user แต่ละคน = รอ response ประมาณ 0.3 วิ + `sleep(1)` อีก 1 วิ รวมเป็นประมาณ 1.3 วิต่อ 1 request ดังนั้น 1 user ยิงได้แค่ประมาณ 0.77 req/s พอมี 5 คนก็ได้ประมาณ 3.8 req/s ซึ่งใกล้กับที่วัดได้
-- Step 0.6, exit code of the normal run and of the run with P95=300: รันปกติได้ exit code **0** (p(95) = 430.57 ms ผ่านเกณฑ์ 1500 ms) พอใช้ `-e P95=300` ได้ exit code **99** เพราะ p(95) = 421.15 ms เกิน 300 ms
-- Step 0.7, rules that passed, p(95), p(99), exit code after your change: ตั้ง 3 VUs 30 วินาที กับ threshold `p(95)<1000`, `p(99)<1500` และ `http_req_failed rate<0.01` ผ่านครบทั้ง 3 ข้อ ได้ p(95) = 401.10 ms, p(99) = 416.73 ms, failed 0.00% จากนั้นลองเปลี่ยน p(95) จาก 1000 เป็น 200 ms (`-e P95=200`) ข้อนี้ไม่ผ่าน (p(95) = 503.94 ms) ได้ exit code **99**
-- Step 0.8, what was wrong, and how the checks showed it: ตอนแรก checks ผ่านแค่ 88.44% โดย `no pepperoni` fail 7 ครั้ง และ `no knife needed` fail 19 ครั้งจาก 75 ครั้ง แต่ status เป็น 200 ทุกครั้ง พอรัน `explore.js` ดูก็เจอว่า API ใช้ชื่อ `"Pepperoni"` กับ `"Knife"` ซึ่งขึ้นต้นด้วยตัวใหญ่ แต่ในสคริปต์ส่งไปเป็นตัวเล็ก API เลยหาไม่เจอแล้วก็ไม่สนเงื่อนไขนี้ไปเลย แก้เป็นตัวใหญ่แล้ว checks ผ่าน 100% (222/222) ที่ต้องยิงหลายๆ ครั้งถึงจะเห็น เพราะพิซซ่าที่สุ่มมาส่วนใหญ่ไม่มีเปปเปอโรนีอยู่แล้ว (ประมาณ 90%) ถ้ากดลองแค่ครั้งเดียวก็อาจจะดูเหมือนถูก แต่พอยิงเยอะๆ แล้วมี check ดูเนื้อหาด้วย ถึงจะเห็นว่าผิดจริง
+
+- **Step 0.1, http_req_duration:** ได้ 386.03 ms มี Requestแค่ครั้งเดียว ค่า avg, min, med, max, p(90) และ p(95) เท่ากันทั้งหมด
+
+- **Step 0.2, requests, rate and p(95), and why the rate stays below 5:** ได้ 75 Requests, Request Rate อยู่ที่ 3.70 req/s และ p(95) = 402.49 ms ไม่ถึง 5 req/s เพราะแต่ละ User ต้องรอให้ Request ตอบกลับก่อน แล้วค่อย sleep อีก 1 วินาที ทำให้หนึ่งรอบใช้เวลาประมาณ 1.3 วินาที ดังนั้น 1 User จึงส่งได้ประมาณ 0.77 Requests/sec มี 5 Users ได้ประมาณ 3.8 req/s ซึ่งใกล้เคียงกับที่เทส
+
+- **Step 0.6, exit code of the normal run and of the run with P95=300:** รันครั้งแรกใช้ Threshold p(95)<1500 ms ได้ p(95) = 430.57 ms และ Exit Code = **0** แปลว่าผ่าน ส่วนครั้งที่สองเปลี่ยนเป็น 300 ms ได้ p(95) = 421.15 ms ซึ่งไม่ผ่านและได้ Exit Code = **99**
+
+- **Step 0.7, rules that passed, p(95), p(99), exit code after your change:** ตั้ง 3 VUs เป็น 30 วินาทีและ p(95)<1000 ms, p(99)<1500 ms และ Request Failure Rate<1% ผลการทดสอบผ่านทั้ง 3 อัน ได้ p(95) = 401.10 ms, p(99) = 416.73 ms และ Failed Requests = 0.00% และปรับ p(95) จาก 1000 เป็น 200 ms ผลที่ได้คือ p(95) = 503.94 ms ทำให้ไม่ผ่านและได้ Exit Code = **99**
+
+- **Step 0.8, what was wrong, and how the checks showed it:** ครั้งแรก Checks ผ่านเพียง 88.44% โดย `no pepperoni` ไม่ผ่าน 7 ครั้ง และ `no knife needed` ไม่ผ่าน 19 ครั้ง โดยที่ HTTP Status เป็น 200 ทุกครั้ง
+
+  จากนั้นใช้ `explore.js` ตรวจสอบ ชื่อ Ingredient และ Tool ที่ API ใช้คือ `Pepperoni` และ `Knife` เป็นตัวอักษรขึ้นต้นด้วยตัวใหญ่ แต่ใน Request แรกส่งเป็นตัวพิมพ์เล็ก ทำให้ไม่ตรงกับค่าที่ API รู้จัก
+
+  แก้ชื่อให้ตรงกับ API แล้วทดสอบอีกครั้ง Checks ผ่าน 100% (222/222)
+
+  ทำหลายครั้งเพราะผลลัพธ์ Pizza เป็นการสุ่ม ถ้าทดลองเแค่ครั้งเดียวอาจยังไม่เจอ Pepperoni แต่ถ้าเพิ่มจำนวน Iterations ก็มีโอกาสเจอกรณีที่ API ไม่ทำตามเงื่อนไขที่
 
 ## Part A results
-| Step | Test type    | Users | Req/s | p(95)     | Max       | Failed | Checks            |
-| ---- | ------------ | ----- | ----- | --------- | --------- | ------ | ----------------- |
-| A1   | Smoke        | 1     | 0.54  | 375.92 ms | 398.32 ms | 0.00%  | 100.00% (24/24)   |
-| A2   | Average load | 3     | 1.31  | 410.94 ms | 463.72 ms | 0.00%  | 100.00% (320/320) |
-| A3   | Stress       | 5     | 2.13  | 384.54 ms | 470.53 ms | 0.00%  | 100.00% (520/520) |
-| A4   | Spike        | 5     | 1.01  | 401.67 ms | 444.11 ms | 0.00%  | 100.00% (196/196) |
-| A5   | Soak         | 2     | 0.97  | 398.02 ms | 465.20 ms | 0.00%  | 100.00% (860/860) |
+
+| Step | Test type | Users | Req/s | p(95) | Max | Failed | Checks |
+|---|---|---:|---:|---:|---:|---:|---:|
+| A1 | Smoke | 1 | 0.54 | 375.92 ms | 398.32 ms | 0.00% | 100.00% (24/24) |
+| A2 | Average load | 3 | 1.31 | 410.94 ms | 463.72 ms | 0.00% | 100.00% (320/320) |
+| A3 | Stress | 5 | 2.13 | 384.54 ms | 470.53 ms | 0.00% | 100.00% (520/520) |
+| A4 | Spike | 5 | 1.01 | 401.67 ms | 444.11 ms | 0.00% | 100.00% (196/196) |
+| A5 | Soak | 2 | 0.97 | 398.02 ms | 465.20 ms | 0.00% | 100.00% (860/860) |
 
 ## Part B
-1. ดูในตารางด้านบน ทุกเทสต์ผ่าน threshold หมด ไม่มี request ไหน fail เลย
-2. เพราะ user แต่ละคนต้องรอ response ก่อน (ประมาณ 0.3 วิ) แล้ว `sleep(1)` อีก 1 วิ ถึงจะเริ่มรอบใหม่ได้ 1 รอบเลยใช้เวลาประมาณ 1.3 วิ ทำให้ 1 user ยิงได้ไม่ถึง 1 req/s พอ 5 คนก็เลยได้แค่ประมาณ 3.7 req/s ไม่ใช่ 5
-3. ไม่เพิ่มขึ้น p(95) ตอน 3 users (A2) = 410.94 ms ส่วนตอน 5 users (A3) = 384.54 ms ซึ่งต่ำกว่าด้วยซ้ำ ทั้งที่ A3 ยิงเยอะกว่าเกือบ 2 เท่า (2.13 กับ 1.31 req/s) ที่ต่างกันนิดหน่อยน่าจะเป็นแค่ความแกว่งของเน็ต แปลว่าโหลดแค่ 5 users ยังอยู่ลึกข้างใน operational envelope ของ QuickPizza มาก ยังไม่ใกล้ขอบเลย เลยเรียกว่า stress test ได้แค่ชื่อ จริงๆ ยังไม่ได้ทำให้ระบบเครียด และไม่ได้บอกว่าระบบจะเริ่มช้าตอนไหน
-4. จากรายงาน (ดูทีละช่วง 10 วิ) ก่อน spike ที่มี 1 user p(95) อยู่ประมาณ 293–403 ms ช่วง spike 5 users ขึ้นไปอยู่ประมาณ 383–406 ms ซึ่งเป็นแค่ขอบบนของช่วงเดิม ค่าเฉลี่ยแทบไม่ขยับ (ประมาณ 300 ms) และไม่มี error เลย หลังลดกลับเหลือ 1 user แค่ช่วง 10 วิแรก p(95) ก็กลับมาอยู่ที่ 357 ms เท่าเดิมแล้ว สรุปคือกลับมาปกติภายในไม่เกิน 10 วิ เพราะ spike แค่ 5 users ไม่ได้ทำให้ระบบหนักขึ้นจริงๆ
-5. ไม่แย่ลง เทียบ 2 นาทีแรกที่มี 2 users ครบ (วินาทีที่ 30–150) กับ 2 นาทีสุดท้ายก่อน ramp down (วินาทีที่ 510–630) ค่าเฉลี่ยคือ 307.7 ms กับ 317.5 ms ต่างกันแค่ประมาณ 10 ms ส่วน p(95) ราย 10 วิ อยู่ช่วง 338–407 ms กับ 357–425 ms ซึ่งยังแกว่งอยู่ในช่วงพอๆ กัน ไม่ได้มีแนวโน้มค่อยๆ สูงขึ้น และ error rate เป็น 0% ตลอดทั้ง 11 นาที (0 จาก 645 requests) แต่เทสต์แค่ 10 นาทีถือว่าสั้นมาก ส่วน defect ที่ soak test หลายชั่วโมงจะเจอได้ เช่น memory leak คือหน่วยความจำค่อยๆ เพิ่มขึ้นเรื่อยๆ จนระบบช้าลงหรือ crash ซึ่งเทสต์สั้นๆ จะไม่เห็น
-6. เพราะค่าเฉลี่ยมันซ่อนคนที่โดนช้าไว้ ถ้ามีไม่กี่ request ที่ช้ามากๆ ค่าเฉลี่ยก็แทบไม่ขยับ แต่ p(95) บอกว่า 95% ของ request เสร็จภายในเวลาเท่าไหร่ ซึ่งสะท้อนประสบการณ์ของ user เกือบทุกคนได้ดีกว่า เช่นใน Step 0.6 ค่าเฉลี่ยคือ 348.88 ms แต่ p(95) คือ 430.57 ms
-7. (1) เรื่องเน็ต: ทุก request ต้องวิ่งผ่านอินเทอร์เน็ตจากไทยไปที่ server ขนาด request ที่เร็วที่สุดยังใช้ประมาณ 258 ms แปลว่าเวลาส่วนใหญ่หมดไปกับการเดินทางของข้อมูล ถ้าเทสต์ใน lab ที่เครื่องยิงอยู่ใกล้ server ตัวเลขจะต่ำกว่านี้มาก (2) QuickPizza เป็นเว็บที่คนทั้งโลกใช้ฝึกพร้อมกัน โหลดจากคนอื่นเลยทำให้ผลแต่ละรอบไม่เท่ากัน แต่ใน lab เราคุม hardware ได้และไม่มีคนอื่นมายิงแทรก
-8. เพราะการยิงหลายร้อย users ก็เหมือนทำ DoS ใส่เว็บคนอื่น อาจทำให้เว็บล่มหรือช้าจนคนที่ใช้งานจริงใช้ไม่ได้ เจ้าของเว็บต้องเสียค่า server เพิ่ม และอาจผิดกฎหมายหรือผิดข้อตกลงการใช้งานด้วย ควรเทสต์แบบนี้กับระบบของเราเอง หรือได้รับอนุญาตเป็นลายลักษณ์อักษรเท่านั้น
-9. Requirement แบบกว้างๆ ของแอปสั่งอาหาร: "ค้นหาร้านอาหารต้องเร็ว แม้ช่วงเที่ยง"
-   เขียนใหม่ให้เทสต์ได้: "ช่วงเที่ยงที่มี 200 users ค้นหาร้านพร้อมกันนาน 10 นาที API ค้นหาต้องตอบ 95% ภายใน 800 ms และ 99% ภายใน 1.5 วินาที request ที่ fail ต้องน้อยกว่า 0.5% และผลค้นหาต้องมีร้านอย่างน้อย 1 ร้านมากกว่า 99% ของครั้ง"
-   Thresholds ใน K6 (ติด tag `name: 'search'` ที่ request ค้นหา และเทสต์กับระบบของบริษัทเองเท่านั้น):
-   ```javascript
-   export const options = {
-     stages: [
-       { duration: '2m', target: 200 },
-       { duration: '10m', target: 200 },
-       { duration: '1m', target: 0 },
-     ],
-     thresholds: {
-       'http_req_duration{name:search}': ['p(95)<800', 'p(99)<1500'],
-       'http_req_failed{name:search}': ['rate<0.005'],
-       checks: ['rate>0.99'],
-     },
-   };
-   ```
+
+**1. Fill in the results table for Steps A1 to A5.**
+
+Checks ผ่าน 100% ไม่มี Request Failure โดยค่า p(95) อยู่ในช่วงป 375–411 ms, QuickPizza ตอบสนองได้สม่ำเสมอ ถึงแม้จะเปลี่ยน Virtual Users และการทดสอบ
+
+**2. In Step 0.2, why was the request rate below 5 requests per second with 5 virtual users?**
+
+เพราะ Virtual User แต่ละคนต้องรอ Response จาก Server ก่อน ถึงจะ sleep อีก 1 วินาที ทำให้หนึ่งรอบใช้เวลา 1.3 วินาที ดังนั้น 1 User จึงส่ง Request ได้ไม่ถึง 1 ครั้งต่อวินาที มี 5 Users จะได้ประมาณ 3.7 Requests/sec
+
+**3. Did the response time grow from the average-load test to the stress test? Explain your answer with the operational envelope.**
+
+Response Time ไม่ได้เพิ่มขึ้นเมื่อเพิ่มโหลดจาก 3 เป็น 5 Users, A2 มี p(95) = 410.94 ms ส่วน A3 มี p(95) = 384.54 ms ต่ำกว่าการทดสอบ Average Load แม้ Request Rate จะเพิ่มจาก 1.31 เป็น 2.13 req/s
+
+แปลว่าโหลดที่ใช้ในการทดสอบยังไม่มากพอที่จะทำให้ประสิทธิภาพลดลง เลยยังบอกไม่ได้ว่าระบบจะเริ่มมีปัญหาเมื่อรับโหลดสูงสุดเท่าไร
+
+**4. In the spike test, how long did the response time take to return to normal after the spike?**
+
+ก่อนเกิด Spike ค่า p(95) อยู่ประมาณ 293–403 ms ส่วนช่วงที่เพิ่มเป็น 5 Users อยู่ประมาณ 383–406 ms หลังจากลดจำนวน Users กลับมาเหลือ 1 คน ค่า Response Time กลับมาอยู่ในระดับเดิม ไม่มี Request Failure แสดงว่า Spike ที่ 5 Users ไม่ได้ส่งผลต่อระบบมาก
+
+**5. In the soak test, did the response time or the error rate get worse over time? Name one kind of defect that a soak test of several hours could reveal.**
+
+จาก Soak Test ใช้ 2 Users 10 นาที Response Time ไม่ได้เพิ่มขึ้นอย่างต่อเนื่อง เมื่อเทียบกับ 2 นาทีแรก กับ 2 นาทีสุดท้ายก่อน Ramp Down ค่า Average Response Time เพิ่มจาก 307.7 ms เป็น 317.5 ms ต่างกันแค่นิดเดียว
+
+ส่วน p(95) ในแต่ละช่วงใกล้เคียงกัน และ Error Rate เป็น 0% ตลอด เลยไม่สรุปว่าประสิทธิภาพลดลง
+
+ปัญหาที่ Soak Test ระยะเวลาหลายชั่วโมงอาจจะเจอได้ก็คือ Memory Leak ซึ่งถ้าใช้หน่วยความจำเพิ่มขึ้นเรื่อยๆอาจจะทำให้ระบบอาจทำงานช้าลงหรือหยุดทำงานได้
+
+**6. Why do the thresholds in this lab use p(95) rather than the average?**
+
+เพราะ Average ทำให้มองไม่เห็น Request ที่ใช้เวลาตอบกลับนานมาก ๆ แต่ p(95) แสดงเวลาที่ 95% ของ Requests สามารถตอบกลับได้ภายในเวลาที่กำหนด ช่วยให้เห็นได้ดีกว่าการดูค่าเฉลี่ยอย่างเดียว
+
+**7. Your results come from a shared public site reached over the internet. Give two reasons why the same tests against a system in a lab could give different numbers.**
+
+มี 2 ปัจจัยหลักที่อาจทำให้ผลการทดสอบแตกต่างกัน
+
+1. **Network Latency:** การทดสอบนี้ยิง Request จากประเทศไทยไปยัง Server ผ่านอินเทอร์เน็ต ทำให้มีเวลาในการส่งข้อมูลไปและกลับเพิ่มเติม หากทดสอบในเครื่องที่อยู่ใกล้กับ Server มากกว่า Response Time ก็อาจต่ำลงได้
+2. **Shared Server Resources:** QuickPizza เป็นเว็บสาธารณะ มีคนอื่นใช้ทดสอบพร้อมกัน จะทำให้โหลดบน Server เปลี่ยนแปลงตลอดเวลา
+
+**8. Why must you never run a stress, spike or breakpoint test with hundreds of users against a site that you do not own?**
+
+เพราะการส่ง Request จำนวนมากไปยังเว็บไซต์ของผู้อื่นอาจทำให้ Server ทำงานหนักจนตอบสนองช้าลงหรือไม่สามารถให้บริการผู้ใช้จริงได้ คล้ายการโจมตีแบบ Denial of Service (DoS) นอกจากนี้อาจจะสร้างค่าใช้จ่ายให้เจ้าของระบบ ควรทำ Performance Testing กับระบบที่เราเป็นเจ้าของหรือได้รับอนุญาต
+
+**9. Write one vague performance requirement for an app you use every day. Rewrite it as a testable requirement, and show the K6 thresholds that check it.**
+
+ตัวอย่างแอปสั่งอาหาร
+
+**Vague Requirement:**
+
+การค้นหาร้านอาหารต้องทำได้รวดเร็ว แม้ในช่วงเวลาเที่ยงที่มีคนใช้งานจำนวนมาก
+
+**Testable Requirement:**
+
+ในช่วงเวลาเที่ยง เมื่อมีผู้ใช้งาน 200 คนค้นหาร้านอาหารพร้อมกันเป็นเวลา 10 นาที API ค้นหาร้านอาหารต้องตอบกลับภายใน 800 ms สำหรับ 95% ของ Requests และภายใน 1,500 ms สำหรับ 99% ของ Requests โดยมี Request Failure Rate น้อยกว่า 0.5% และต้องแสดงผลการค้นหาที่มีร้านอาหารอย่างน้อย 1 ร้านได้มากกว่า 99% ของ Requests
+
+**K6 Thresholds:**
+
+```javascript
+export const options = {
+  stages: [
+    { duration: '2m', target: 200 },
+    { duration: '10m', target: 200 },
+    { duration: '1m', target: 0 },
+  ],
+  thresholds: {
+    'http_req_duration{name:search}': [
+      'p(95)<800',
+      'p(99)<1500',
+    ],
+    'http_req_failed{name:search}': [
+      'rate<0.005',
+    ],
+    checks: ['rate>0.99'],
+  },
+};
+```
+
+`name: 'search'` ให้กับ Request ที่ใช้ค้นหาร้านอาหาร และเพิ่ม Check เพื่อตรวจว่าผลลัพธ์มีร้านอาหารอย่างน้อย 1 ร้านจริง การทดสอบด้วย 200 Users นี้ควรทำกับระบบของเราเองหรือระบบที่ได้รับอนุญาตเท่านั้น
